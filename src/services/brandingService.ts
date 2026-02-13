@@ -1,35 +1,53 @@
 import type { BrandProject, BrandBranding, BrandProposal, BrandColor, BrandIcon } from '../types';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Google AI instance
-let genAI: GoogleGenerativeAI | null = null;
-const GEMINI_MODEL = 'gemini-1.5-flash';
+// API Configuration
+const BACKEND_URL = 'http://localhost:5000/api/generate';
 
-// Initialize Gemini with API Key
-export function initializeAI(apiKey: string): void {
-  if (apiKey && apiKey.trim().length > 0) {
-    genAI = new GoogleGenerativeAI(apiKey);
-    console.log('✅ Google AI initialized successfully');
+// Helper to call backend API
+async function callBackend(data: any): Promise<any> {
+  const response = await fetch(BACKEND_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
   }
+
+  return response.json();
 }
 
-// Check if AI is initialized
+// Initialize Gemini (Kept for UI compatibility but logic removed)
+export function initializeAI(_apiKey: string): void {
+  console.log('✅ AI service ready (using backend)');
+}
+
+// Check if AI is initialized (Always true if we assume backend is there)
 export function isAIInitialized(): boolean {
-  return genAI !== null;
+  return true;
 }
 
-// Generate a summary from chat messages for the branding prompt (exported for use in context)
+// Helper function to add delay between API calls
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Generate a summary from chat messages
 export function generateContextSummary(messages: { role: string; content: string }[]): string {
   const userMessages = messages
     .filter(m => m.role === 'user')
     .map(m => m.content)
     .join('\n');
-  
+
   const assistantMessages = messages
     .filter(m => m.role === 'assistant')
     .map(m => m.content)
     .join('\n');
-  
+
   return `
 Conversación del usuario:
 ${userMessages}
@@ -39,71 +57,19 @@ ${assistantMessages}
   `.trim();
 }
 
-// ===== GENERATE IMAGES WITH IMAGEN 3 =====
-async function generateImageWithImagen3(prompt: string, apiKey: string): Promise<string> {
-  try {
-    // Using Google's Imagen API through REST endpoint
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: prompt
-          }]
-        }],
-        generationConfig: {
-          responseModalities: ["TEXT", "IMAGE"]
-        }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Imagen API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Extract image data from response
-    if (data.candidates && data.candidates[0]?.content?.parts) {
-      for (const part of data.candidates[0].content.parts) {
-        if (part.inlineData && part.inlineData.mimeType.startsWith('image/')) {
-          return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-        }
-      }
-    }
-    
-    throw new Error('No image data in response');
-  } catch (error) {
-    console.error('❌ Error generating image with Imagen 3:', error);
-    throw error;
-  }
-}
-
 // ===== GENERATE BRANDING WITH MULTI-AGENT SYSTEM =====
 export async function generateBranding(
-  brandName: string, 
-  description: string, 
-  industry?: string, 
+  brandName: string,
+  description: string,
+  industry?: string,
   targetAudience?: string,
   chatContext?: string
 ): Promise<BrandBranding> {
-  
-  const apiKey = getApiKey();
-  if (!genAI || !apiKey) {
-    console.warn('⚠️ AI not initialized, using fallback data');
-    return generateFallbackBranding(brandName, description);
-  }
 
   try {
-    console.log('🎨 Starting Multi-Agent Branding Generation...', { brandName, industry });
+    console.log('🎨 Starting Backend Branding Generation...', { brandName, industry });
 
     // ===== AGENTE 1: DIRECTOR CREATIVO =====
-    // Analiza el contexto y define la estrategia creativa
-    const directorModel = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-    
     const directorPrompt = `Actúa como un Director Creativo Senior de una agencia de branding premium.
 
 ANÁLISIS DE MARCA:
@@ -125,82 +91,204 @@ Cada dirección debe tener:
 
 Responde en JSON puro sin markdown.`;
 
-    console.log('🎭 Agent 1: Director Creativo analyzing...');
-    const directorResult = await directorModel.generateContent(directorPrompt);
-    const directorResponse = await directorResult.response;
-    let creativeDirections = directorResponse.text();
-    
+    console.log('🎭 Agent 1: Director Creativo (Backend)...');
+    const { result: creativeDirections } = await callBackend({
+      type: "text",
+      prompt: directorPrompt
+    });
+    console.log("RAW CREATIVE RESPONSE:", creativeDirections);
     // Clean JSON
-    creativeDirections = creativeDirections.trim();
-    if (creativeDirections.startsWith('```json')) {
-      creativeDirections = creativeDirections.replace(/```json\n?/g, '').replace(/```\s*$/g, '');
-    } else if (creativeDirections.startsWith('```')) {
-      creativeDirections = creativeDirections.replace(/```\n?/g, '').replace(/```\s*$/g, '');
+    let cleanedJson = creativeDirections.trim();
+
+    // Eliminar bloques markdown
+    cleanedJson = cleanedJson.replace(/```json/g, '');
+    cleanedJson = cleanedJson.replace(/```/g, '');
+
+    // Detectar si el JSON empieza con array o con objeto
+    const firstCurly = cleanedJson.indexOf('{');
+    const firstBracket = cleanedJson.indexOf('[');
+
+    let startIndex = -1;
+
+    if (firstBracket !== -1 && (firstBracket < firstCurly || firstCurly === -1)) {
+      startIndex = firstBracket;
+    } else if (firstCurly !== -1) {
+      startIndex = firstCurly;
     }
-    
-    const creativeData = JSON.parse(creativeDirections);
+
+    if (startIndex !== -1) {
+      cleanedJson = cleanedJson.substring(startIndex);
+    }
+
+    // Detectar cierre correcto
+    const lastCurly = cleanedJson.lastIndexOf('}');
+    const lastBracket = cleanedJson.lastIndexOf(']');
+
+    let endIndex = -1;
+
+    if (lastBracket > lastCurly) {
+      endIndex = lastBracket;
+    } else {
+      endIndex = lastCurly;
+    }
+
+    if (endIndex !== -1) {
+      cleanedJson = cleanedJson.substring(0, endIndex + 1);
+    }
+    const creativeData = JSON.parse(cleanedJson);
     console.log('✅ Creative directions defined:', creativeData.proposals?.length || creativeData.directions?.length);
 
-    // ===== AGENTE 2: DISEÑADOR GRÁFICO (Genera Logos con Imagen 3) =====
-    console.log('🎨 Agent 2: Graphic Designer generating logos with Imagen 3...');
-    
+    // ===== AGENTE 2: DISEÑADOR GRÁFICO (Genera Logos con Imagen 3 via Backend) =====
+    console.log('🎨 Agent 2: Graphic Designer (Backend Imagen 3)...');
+
     const proposals = [];
-    const directions = creativeData.proposals || creativeData.directions || [];
-    
+    let directions: any[] = [];
+
+    if (Array.isArray(creativeData)) {
+      directions = creativeData;
+    } else if (Array.isArray(creativeData.proposals)) {
+      directions = creativeData.proposals;
+    } else if (Array.isArray(creativeData.directions)) {
+      directions = creativeData.directions;
+    } else if (Array.isArray(creativeData.direcciones_creativas)) {
+      directions = creativeData.direcciones_creativas;
+    }
+
+    if (!directions.length) {
+      throw new Error("No se generaron propuestas desde el backend");
+    }
     for (let i = 0; i < Math.min(5, directions.length); i++) {
       const direction = directions[i];
-      
-      // Generate logo with Imagen 3
-      const logoPrompt = `Professional logo design for "${brandName}". ${direction.visualDescription || direction.logoDescription || 'Modern and professional design'}.
-Style: ${direction.mood || 'modern'}.
-Colors: ${direction.colors?.map((c: any) => c.hex || c).join(', ') || '#6366f1, #8b5cf6'}.
+
+      // Normalización de datos para compatibilidad con nuevas claves de Gemini
+      const rawColors =
+        direction.colors ||
+        direction.paleta_colores ||
+        null;
+
+      let normalizedColors: BrandColor[] | undefined;
+
+      if (Array.isArray(rawColors)) {
+        normalizedColors = rawColors;
+      } else if (rawColors && typeof rawColors === "object") {
+        normalizedColors = Object.entries(rawColors).map(([key, value]) => ({
+          name: key.charAt(0).toUpperCase() + key.slice(1),
+          hex: value as string,
+          usage: `Color ${key}`
+        }));
+      }
+
+      const rawTypography =
+        direction.typography ||
+        direction.tipografias ||
+        null;
+
+      let normalizedTypography = rawTypography;
+
+      if (rawTypography && typeof rawTypography === "object") {
+        normalizedTypography = {
+          heading: {
+            name: rawTypography.titulo || rawTypography.titulos || "Inter",
+            fontFamily: `${rawTypography.titulo || rawTypography.titulos || "Inter"}, sans-serif`,
+            usage: "Títulos",
+            googleFont: rawTypography.titulo || rawTypography.titulos || "Inter"
+          },
+          body: {
+            name: rawTypography.cuerpo || "DM Sans",
+            fontFamily: `${rawTypography.cuerpo || "DM Sans"}, sans-serif`,
+            usage: "Cuerpo",
+            googleFont: rawTypography.cuerpo || "DM Sans"
+          }
+        };
+      }
+
+      const normalizedDirection = {
+        ...direction,
+        colors: normalizedColors,
+        typography: normalizedTypography,
+        logoDescription:
+          direction.logoDescription ||
+          direction.descripcion_logo ||
+          direction.logo,
+        iconStyle:
+          direction.iconStyle ||
+          direction.sistema_iconos
+      };
+
+      let logoImageUrl = '';
+
+      // limitación: Solo la primera propuesta genera logo real
+      if (i === 0) {
+        const logoPrompt = `Professional logo design for "${brandName}". ${normalizedDirection.visualDescription || normalizedDirection.logoDescription || 'Modern and professional design'}.
+Style: ${normalizedDirection.mood || 'modern'}.
+Colors: ${normalizedDirection.colors?.map((c: any) => c.hex || c).join(', ') || '#6366f1, #8b5cf6'}.
 Industry: ${industry || 'technology'}.
 The logo should be clean, scalable, suitable for business use. Centered composition, white or transparent background, high quality, vector-style appearance.`;
 
-      let logoImageUrl = '';
-      try {
-        logoImageUrl = await generateImageWithImagen3(logoPrompt, apiKey);
-        console.log(`✅ Logo ${i + 1} generated`);
-      } catch (error) {
-        console.error(`❌ Error generating logo ${i + 1}:`, error);
-        // Fallback to placeholder
-        logoImageUrl = generatePlaceholderLogo(brandName, direction.colors?.[0]?.hex || '#6366f1');
+        try {
+          const imageRes = await callBackend({
+            type: "image",
+            prompt: logoPrompt
+          });
+          await delay(250);
+          logoImageUrl = imageRes.logo;
+          console.log(`✅ Logo ${i + 1} generated`);
+        } catch (error) {
+          console.error(`❌ Error generating logo ${i + 1}:`, error);
+          logoImageUrl = generatePlaceholderLogo(brandName, normalizedDirection.colors?.[0]?.hex || '#6366f1');
+        }
+      } else {
+        // Fallback para propuestas secundarias
+        logoImageUrl = generatePlaceholderLogo(brandName, normalizedDirection.colors?.[0]?.hex || '#6366f1');
       }
 
-      // Generate 6 icons for this proposal
-      console.log(`🎨 Generating icons for proposal ${i + 1}...`);
+      // Generate icons for this proposal
       const icons = [];
-      const iconNames = ['home', 'search', 'user', 'settings', 'heart', 'star'];
-      
-      for (const iconName of iconNames) {
-        const iconPrompt = `Simple icon of ${iconName} for "${brandName}" brand. ${direction.iconStyle || direction.visualDescription || ''}.
-Style: ${direction.mood || 'modern'}, minimalist, line icon style.
-Colors: ${direction.colors?.[0]?.hex || '#6366f1'}.
+
+      // limitación: Solo la primera propuesta genera iconos reales (4 iconos)
+      if (i === 0) {
+        console.log(`🎨 Generating 4 real icons for proposal ${i + 1}...`);
+        const iconNames = ['home', 'search', 'user', 'settings'];
+
+        for (const iconName of iconNames) {
+          const iconPrompt = `Simple icon of ${iconName} for "${brandName}" brand. ${normalizedDirection.iconStyle || normalizedDirection.visualDescription || ''}.
+Style: ${normalizedDirection.mood || 'modern'}, minimalist, line icon style.
+Colors: ${normalizedDirection.colors?.[0]?.hex || '#6366f1'}.
 Clean, simple, suitable for UI/UX. White background, centered.`;
 
-        try {
-          const iconImageUrl = await generateImageWithImagen3(iconPrompt, apiKey);
-          icons.push({
-            name: iconName,
-            svg: iconImageUrl, // Using base64 image data
-            description: `Icono de ${iconName}`,
-          });
-        } catch (error) {
-          console.error(`❌ Error generating icon ${iconName}:`, error);
-          // Fallback SVG
+          try {
+            const iconRes = await callBackend({
+              type: "image",
+              prompt: iconPrompt
+            });
+            await delay(250);
+            icons.push({
+              name: iconName,
+              svg: iconRes.logo,
+              description: `Icono de ${iconName}`,
+            });
+          } catch (error) {
+            console.error(`❌ Error generating icon ${iconName}:`, error);
+            icons.push(generateFallbackIcon(iconName));
+          }
+        }
+      } else {
+        // Fallback para iconos de propuestas secundarias
+        const fallbackIconNames = ['home', 'search', 'user', 'settings', 'heart', 'star'];
+        for (const iconName of fallbackIconNames) {
           icons.push(generateFallbackIcon(iconName));
         }
       }
 
       proposals.push({
         id: i + 1,
-        name: direction.name || `Propuesta ${i + 1}`,
-        description: direction.description || `Diseño ${direction.mood || 'modern'} para ${brandName}`,
-        mood: direction.mood || 'modern',
+        name: normalizedDirection.name || `Propuesta ${i + 1}`,
+        description: normalizedDirection.description || `Diseño ${normalizedDirection.mood || 'modern'} para ${brandName}`,
+        mood: normalizedDirection.mood || 'modern',
         logo: logoImageUrl,
-        colorScheme: direction.colors?.map((c: any) => c.hex || c) || ['#6366f1', '#8b5cf6', '#ec4899', '#f9fafb', '#111827', '#ffffff'],
-        colors: direction.colors || generateFallbackColors(),
-        typography: direction.typography || {
+        colorScheme: normalizedDirection.colors?.map((c: any) => c.hex || c) || ['#6366f1', '#8b5cf6', '#ec4899', '#f9fafb', '#111827', '#ffffff'],
+        colors: normalizedDirection.colors || generateFallbackColors(),
+        typography: normalizedDirection.typography || {
           heading: { name: 'Inter', fontFamily: 'Inter, sans-serif', usage: 'Títulos', googleFont: 'Inter' },
           body: { name: 'DM Sans', fontFamily: 'DM Sans, sans-serif', usage: 'Cuerpo', googleFont: 'DM+Sans' }
         },
@@ -209,9 +297,10 @@ Clean, simple, suitable for UI/UX. White background, centered.`;
       });
     }
 
-    console.log('✅ All proposals generated:', proposals.length);
+    if (!proposals.length) {
+      throw new Error("No se generaron propuestas desde el backend");
+    }
 
-    // Use first proposal as main branding
     const mainProposal = proposals[0];
 
     return {
@@ -233,7 +322,7 @@ Clean, simple, suitable for UI/UX. White background, centered.`;
     };
 
   } catch (error) {
-    console.error('❌ Error in multi-agent branding generation:', error);
+    console.error('❌ Error in backend branding generation:', error);
     return generateFallbackBranding(brandName, description);
   }
 }
@@ -269,7 +358,7 @@ function generateFallbackIcon(name: string): BrandIcon {
     heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
     star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
   };
-  
+
   return {
     name,
     svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${iconPaths[name] || iconPaths.star}</svg>`,
@@ -277,25 +366,14 @@ function generateFallbackIcon(name: string): BrandIcon {
   };
 }
 
-// ===== AI CHAT RESPONSES (True Gemini Chat) =====
+// ===== AI CHAT RESPONSES (Via Backend) =====
 export async function getAIResponse(messages: { role: string; content: string }[]): Promise<string> {
-  if (!genAI) {
-    return getFallbackChatResponse(messages);
-  }
-
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    
-    // Format messages for Gemini Chat
-    // Remove the very last message to use it as the new prompt
-    const chatHistory = messages.slice(0, -1).map(m => ({
+    const history = messages.map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }]
     }));
-    
-    const lastUserMessage = messages[messages.length - 1]?.content || '';
 
-    // A very strict System Prompt to ensure Gemini behaves as a proper assistant
     const systemInstruction = `Eres BrandGen AI, un diseñador experto y asistente de branding.
 Tu objetivo principal es hacerle preguntas al usuario sobre su empresa para crearle una identidad de marca profesional (logo, paletas, tipografías).
 
@@ -311,20 +389,16 @@ REGLAS OBLIGATORIAS:
    "¡Perfecto! Tengo toda la información que necesito para crear algo increíble. Por favor, haz clic en el botón superior que dice '✨ Generar Branding' para que pueda entregarte las 5 propuestas con tus logos e iconos reales."
 `;
 
-    // Initialize conversation
-    const chat = model.startChat({
-      history: chatHistory,
-      systemInstruction: systemInstruction,
+    const { result } = await callBackend({
+      type: "chat",
+      history,
+      systemInstruction
     });
 
-    // Send the last message
-    const result = await chat.sendMessage(lastUserMessage);
-    const response = await result.response;
-    
-    return response.text();
-    
+    return result;
+
   } catch (error) {
-    console.error('❌ Error in AI chat:', error);
+    console.error('❌ Error in backend AI chat:', error);
     return getFallbackChatResponse(messages);
   }
 }
@@ -341,17 +415,17 @@ function generateFallbackBranding(brandName: string, description: string): Brand
   ];
 
   const typography = {
-    heading: { 
-      name: 'Inter', 
-      fontFamily: 'Inter, sans-serif', 
-      usage: 'Títulos y encabezados', 
-      googleFont: 'Inter' 
+    heading: {
+      name: 'Inter',
+      fontFamily: 'Inter, sans-serif',
+      usage: 'Títulos y encabezados',
+      googleFont: 'Inter'
     },
-    body: { 
-      name: 'DM Sans', 
-      fontFamily: 'DM Sans, sans-serif', 
-      usage: 'Texto de párrafos', 
-      googleFont: 'DM+Sans' 
+    body: {
+      name: 'DM Sans',
+      fontFamily: 'DM Sans, sans-serif',
+      usage: 'Texto de párrafos',
+      googleFont: 'DM+Sans'
     },
   };
 
@@ -404,16 +478,15 @@ function generateFallbackBranding(brandName: string, description: string): Brand
 function getFallbackChatResponse(messages: { role: string; content: string }[]): string {
   const lastMessage = messages[messages.length - 1]?.content.toLowerCase() || '';
   const userMessageCount = messages.filter(m => m.role === 'user').length;
-  
-  // Based on message count, determine what to ask
+
   if (userMessageCount === 0) {
     return "¡Hola! Soy BrandGen AI, tu asistente de branding. Cuéntame sobre tu empresa o marca. ¿Qué nombre tiene y a qué se dedica?";
   }
-  
+
   if (lastMessage.includes('logo') || lastMessage.includes('diseño')) {
     return "¿Te gustaría un diseño moderno y minimalista, o prefieres algo más tradicional y elegante?";
   }
-  
+
   if (lastMessage.includes('color')) {
     return "Perfecto con los colores. ¿Tienes alguna preferencia de tipografía? ¿Prefieres fuentes modernas o clásicas?";
   }
@@ -427,7 +500,7 @@ function getFallbackChatResponse(messages: { role: string; content: string }[]):
     "Perfecto, tu marca suena muy interesante. ¿Quieres que genere las propuestas de branding ahora?",
     "¡Excelente! Con toda esta información podré crear un branding perfecto para ti. ¿Generamos las propuestas?",
   ];
-  
+
   return closingResponses[Math.floor(Math.random() * closingResponses.length)];
 }
 
@@ -441,8 +514,7 @@ function generateTagline(brandName: string, _description: string): string {
     `Calidad garantizada`,
     `El futuro de tu marca`,
   ];
-  
-  // Generate consistent tagline based on brand name
+
   const index = Math.abs(brandName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) % taglines.length;
   return taglines[index];
 }
@@ -451,13 +523,13 @@ function generateTagline(brandName: string, _description: string): string {
 export function saveProject(project: BrandProject): void {
   const projects = getProjects();
   const existingIndex = projects.findIndex(p => p.id === project.id);
-  
+
   if (existingIndex >= 0) {
     projects[existingIndex] = project;
   } else {
     projects.push(project);
   }
-  
+
   localStorage.setItem('brandgen_projects', JSON.stringify(projects));
 }
 
@@ -475,10 +547,9 @@ export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
-// ===== API KEY MANAGEMENT =====
+// ===== API KEY MANAGEMENT (UI Compatibility) =====
 export function saveApiKey(apiKey: string): void {
   localStorage.setItem('brandgen_api_key', apiKey);
-  initializeAI(apiKey);
 }
 
 export function getApiKey(): string | null {
@@ -487,11 +558,4 @@ export function getApiKey(): string | null {
 
 export function deleteApiKey(): void {
   localStorage.removeItem('brandgen_api_key');
-  genAI = null;
-}
-
-// Auto-initialize on load
-const storedKey = getApiKey();
-if (storedKey) {
-  initializeAI(storedKey);
 }
