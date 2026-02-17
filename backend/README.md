@@ -1,0 +1,38 @@
+# 🚀 BrandGen AI - Backend Server
+
+Este es el servidor encargado de la orquestación de IA y la generación de imágenes profesionales usando **Google Imagen 4.0 Fast (Preview)**.
+
+## 🛠️ Requisitos
+- Node.js (v18 o superior)
+- Una API Key de Google AI Studio configurada en un archivo `.env`
+
+## 📦 Instalación
+1. Entra a esta carpeta:
+   ```bash
+   cd backend
+   ```
+2. Instala las dependencias:
+   ```bash
+   npm install
+   ```
+
+## 🚀 Ejecución
+Inicia el servidor con:
+```bash
+node server.js
+```
+
+El servidor escuchará en: `http://localhost:5000`
+
+## 📁 Estructura
+- `server.js`: El servidor Express principal con la lógica de Imagen 4.0 via REST.
+- `probe.js`: Utilidad para auditar modelos disponibles.
+- `check-models-api.js`: Diagnóstico de API directa.
+- `verify-backend.js`: Script de prueba de extremo a extremo para el backend.
+
+## 🔑 Configuración
+Crea un archivo `.env` en esta carpeta con:
+```env
+GEMINI_API_KEY=tu_clave_aqui
+GOOGLE_IMAGEN_API_KEY=tu_clave_aqui (opcional, si es diferente a la de Gemini)
+```
