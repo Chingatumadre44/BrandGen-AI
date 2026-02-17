@@ -6,6 +6,15 @@ import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+if (!GEMINI_API_KEY) {
+    console.error("❌ ERROR: GEMINI_API_KEY no encontrada en el entorno.");
+    console.error("Por favor, asegúrate de tener un archivo .env en la carpeta /backend con la clave:");
+    console.error("GEMINI_API_KEY=tu_clave_aqui");
+    process.exit(1);
+}
+
 const app = express();
 const PORT = 5000;
 
@@ -13,13 +22,14 @@ app.use(cors());
 app.use(express.json());
 
 const ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
+    apiKey: GEMINI_API_KEY,
 });
 
-// Cliente exclusivo para Imágenes (si existe la Key, sino usa la principal)
+const aiImageKey = process.env.GOOGLE_IMAGEN_API_KEY || GEMINI_API_KEY;
 const aiImage = new GoogleGenAI({
-    apiKey: process.env.GOOGLE_IMAGEN_API_KEY || process.env.GEMINI_API_KEY,
+    apiKey: aiImageKey,
 });
+
 
 // Helper para delays
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
