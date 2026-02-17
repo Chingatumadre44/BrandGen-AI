@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
-import Replicate from "replicate";
+
 
 dotenv.config();
 
@@ -16,8 +16,9 @@ const ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
 });
 
-const replicate = new Replicate({
-    auth: process.env.REPLICATE_API_TOKEN,
+// Cliente exclusivo para Imágenes (si existe la Key, sino usa la principal)
+const aiImage = new GoogleGenAI({
+    apiKey: process.env.GOOGLE_IMAGEN_API_KEY || process.env.GEMINI_API_KEY,
 });
 
 // Helper para delays
@@ -46,8 +47,9 @@ app.post("/api/generate", async (req, res) => {
             return res.json({ result: response.text });
         }
 
+
         // ===============================
-        // IMAGEN (Ideogram - Stream con Rate Limit)
+        // IMAGEN (Google Imagen 4.0 Fast via REST API)
         // ===============================
         if (type === "image") {
             // Esperar si ya hay una imagen procesándose para serializar
@@ -58,43 +60,66 @@ app.post("/api/generate", async (req, res) => {
             isProcessingImage = true;
 
             try {
-                // Delay obligatorio de 1200ms solicitado por el usuario
-                await delay(1200);
+                // Delay para no saturar la cuota
+                await delay(1000);
 
-                const stream = await replicate.run(
-                    "ideogram-ai/ideogram-v3-turbo",
-                    {
-                        input: {
-                            prompt: prompt,
-                            aspect_ratio: "1:1",
-                        },
-                    }
-                );
+                const model = "imagen-4.0-fast-generate-001";
+                const apiKey = process.env.GOOGLE_IMAGEN_API_KEY || process.env.GEMINI_API_KEY;
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${apiKey}`;
 
-                // Convertir stream a buffer
-                const chunks = [];
-                for await (const chunk of stream) {
-                    chunks.push(chunk);
+                console.log(`Generando imagen con ${model} (REST)...`);
+                console.log("Prompt:", prompt);
+
+                const response = await fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        instances: [
+                            { prompt: prompt }
+                        ],
+                        parameters: {
+                            sampleCount: 1
+                        }
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    console.error("Error de API Imagen:", data.error);
+                    throw new Error(data.error.message || "Error desconocido en la API de Imagen");
                 }
 
-                const buffer = Buffer.concat(chunks);
-                const base64Image = buffer.toString("base64");
+                // Extraer imagen base64 de la respuesta REST
+                const imageBase64 = data.predictions?.[0]?.bytesBase64Encoded;
+
+                if (!imageBase64) {
+                    console.error("Respuesta de API sin predicciones:", JSON.stringify(data, null, 2));
+                    throw new Error("No se recibió imagen base64 de Google Imagen");
+                }
+
+                const imageUrl = `data:image/png;base64,${imageBase64}`;
+
+                console.log("✓ Imagen generada exitosamente (REST)");
 
                 return res.json({
-                    logo: `data:image/png;base64,${base64Image}`,
+                    logo: imageUrl,
                 });
             } catch (error) {
-                if (error.status === 429 || error.message?.includes("429")) {
-                    return res.status(429).json({
-                        error: "Límite de Replicate alcanzado (6/min)",
-                        details: "Por favor espera 1 minuto antes de intentar de nuevo."
-                    });
-                }
-                throw error;
+                console.error("=== ERROR EN GENERACIÓN DE IMAGEN (REST) ===");
+                console.error(error.message);
+
+                res.status(500).json({
+                    error: "Error procesando solicitud de IA (Imagen)",
+                    details: error.message
+                });
+                return;
             } finally {
                 isProcessingImage = false;
             }
+            return;
         }
+
 
         // ===============================
         // CHAT (Gemini)

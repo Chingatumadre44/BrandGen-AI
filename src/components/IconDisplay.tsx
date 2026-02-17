@@ -18,17 +18,17 @@ export function IconSet({ icons, color = '#6366f1', size = 32 }: IconSetProps) {
             className="p-3 rounded-xl bg-slate-50 group-hover:bg-violet-50 transition-colors flex items-center justify-center"
             style={{ width: size + 16, height: size + 16 }}
           >
-            {icon.svg.startsWith('data:') ? (
-              <img 
-                src={icon.svg} 
+            {icon.svg.startsWith('data:') || icon.svg.startsWith('http') ? (
+              <img
+                src={icon.svg}
                 alt={icon.name}
                 className="w-full h-full object-contain"
                 style={{ maxWidth: size, maxHeight: size }}
               />
             ) : (
               <div
-                dangerouslySetInnerHTML={{ 
-                  __html: icon.svg.replace(/currentColor/g, color).replace(/stroke-width="2"/g, `stroke-width="1.5"`) 
+                dangerouslySetInnerHTML={{
+                  __html: icon.svg.replace(/currentColor/g, color).replace(/stroke-width="2"/g, `stroke-width="1.5"`)
                 }}
               />
             )}
@@ -53,17 +53,17 @@ export function IconGrid({ icons, color = '#6366f1' }: IconGridProps) {
           key={index}
           className="flex flex-col items-center p-3 bg-slate-50 rounded-xl hover:bg-violet-50 transition-colors cursor-pointer"
         >
-          {icon.svg.startsWith('data:') ? (
-            <img 
-              src={icon.svg} 
+          {icon.svg.startsWith('data:') || icon.svg.startsWith('http') ? (
+            <img
+              src={icon.svg}
               alt={icon.name}
               className="w-8 h-8 object-contain"
             />
           ) : (
             <div
               className="p-2"
-              dangerouslySetInnerHTML={{ 
-                __html: icon.svg.replace(/currentColor/g, color).replace(/stroke-width="2"/g, `stroke-width="1.5"`) 
+              dangerouslySetInnerHTML={{
+                __html: icon.svg.replace(/currentColor/g, color).replace(/stroke-width="2"/g, `stroke-width="1.5"`)
               }}
               style={{ color }}
             />
@@ -89,17 +89,17 @@ export function SingleIcon({ icon, color = '#6366f1', size = 48, showName = true
         className="p-4 bg-white rounded-2xl shadow-md flex items-center justify-center"
         style={{ width: size + 32, height: size + 32 }}
       >
-        {icon.svg.startsWith('data:') ? (
-          <img 
-            src={icon.svg} 
+        {icon.svg.startsWith('data:') || icon.svg.startsWith('http') ? (
+          <img
+            src={icon.svg}
             alt={icon.name}
             className="object-contain"
             style={{ maxWidth: size, maxHeight: size }}
           />
         ) : (
           <div
-            dangerouslySetInnerHTML={{ 
-              __html: icon.svg.replace(/currentColor/g, color).replace(/stroke-width="2"/g, `stroke-width="1.5"`) 
+            dangerouslySetInnerHTML={{
+              __html: icon.svg.replace(/currentColor/g, color).replace(/stroke-width="2"/g, `stroke-width="1.5"`)
             }}
           />
         )}
@@ -135,12 +135,20 @@ export function IconShowcase({ icons, title }: IconShowcaseProps) {
             key={index}
             className="flex flex-col items-center p-4 bg-slate-50 rounded-xl hover:bg-violet-50 hover:shadow-md transition-all cursor-pointer group"
           >
-            <div
-              className="group-hover:scale-110 transition-transform"
-              dangerouslySetInnerHTML={{ 
-                __html: icon.svg.replace(/currentColor/g, '#6366f1').replace(/stroke-width="2"/g, `stroke-width="1.5"`) 
-              }}
-            />
+            {icon.svg.startsWith('data:') || icon.svg.startsWith('http') ? (
+              <img
+                src={icon.svg}
+                alt={icon.name}
+                className="w-8 h-8 object-contain group-hover:scale-110 transition-transform"
+              />
+            ) : (
+              <div
+                className="group-hover:scale-110 transition-transform"
+                dangerouslySetInnerHTML={{
+                  __html: icon.svg.replace(/currentColor/g, '#6366f1').replace(/stroke-width="2"/g, `stroke-width="1.5"`)
+                }}
+              />
+            )}
             <p className="mt-3 text-xs text-slate-600 text-center">{icon.name}</p>
           </div>
         ))}

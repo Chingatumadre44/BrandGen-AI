@@ -104,39 +104,12 @@ Responde en JSON puro sin markdown.`;
     cleanedJson = cleanedJson.replace(/```json/g, '');
     cleanedJson = cleanedJson.replace(/```/g, '');
 
-    // Detectar si el JSON empieza con array o con objeto
-    const firstCurly = cleanedJson.indexOf('{');
-    const firstBracket = cleanedJson.indexOf('[');
+    // Eliminar trailing commas inválidas en arrays y objetos
+    cleanedJson = cleanedJson.replace(/,\s*]/g, ']');
+    cleanedJson = cleanedJson.replace(/,\s*}/g, '}');
 
-    let startIndex = -1;
-
-    if (firstBracket !== -1 && (firstBracket < firstCurly || firstCurly === -1)) {
-      startIndex = firstBracket;
-    } else if (firstCurly !== -1) {
-      startIndex = firstCurly;
-    }
-
-    if (startIndex !== -1) {
-      cleanedJson = cleanedJson.substring(startIndex);
-    }
-
-    // Detectar cierre correcto
-    const lastCurly = cleanedJson.lastIndexOf('}');
-    const lastBracket = cleanedJson.lastIndexOf(']');
-
-    let endIndex = -1;
-
-    if (lastBracket > lastCurly) {
-      endIndex = lastBracket;
-    } else {
-      endIndex = lastCurly;
-    }
-
-    if (endIndex !== -1) {
-      cleanedJson = cleanedJson.substring(0, endIndex + 1);
-    }
     const creativeData = JSON.parse(cleanedJson);
-    console.log('✅ Creative directions defined:', creativeData.proposals?.length || creativeData.directions?.length);
+    console.log('✅ Creative data parsed');
 
     // ===== AGENTE 2: DISEÑADOR GRÁFICO (Genera Logos con Imagen 3 via Backend) =====
     console.log('🎨 Agent 2: Graphic Designer (Backend Imagen 3)...');
@@ -146,12 +119,10 @@ Responde en JSON puro sin markdown.`;
 
     if (Array.isArray(creativeData)) {
       directions = creativeData;
-    } else if (Array.isArray(creativeData.proposals)) {
-      directions = creativeData.proposals;
-    } else if (Array.isArray(creativeData.directions)) {
-      directions = creativeData.directions;
-    } else if (Array.isArray(creativeData.direcciones_creativas)) {
-      directions = creativeData.direcciones_creativas;
+    } else if (typeof creativeData === "object" && creativeData !== null) {
+      // Intentar detectar dinámicamente cualquier array dentro del objeto
+      const possibleArray = Object.values(creativeData).find(v => Array.isArray(v));
+      if (possibleArray) directions = possibleArray as any[];
     }
 
     if (!directions.length) {
@@ -217,68 +188,70 @@ Responde en JSON puro sin markdown.`;
 
       let logoImageUrl = '';
 
-      // limitación: Solo la primera propuesta genera logo real
+      // Generation: Solo la primera propuesta genera imágenes reales
       if (i === 0) {
-        const logoPrompt = `Professional logo design for "${brandName}". ${normalizedDirection.visualDescription || normalizedDirection.logoDescription || 'Modern and professional design'}.
-Style: ${normalizedDirection.mood || 'modern'}.
-Colors: ${normalizedDirection.colors?.map((c: any) => c.hex || c).join(', ') || '#6366f1, #8b5cf6'}.
-Industry: ${industry || 'technology'}.
-The logo should be clean, scalable, suitable for business use. Centered composition, white or transparent background, high quality, vector-style appearance.`;
+        const logoPrompt = `Professional logo design for "${brandName}". ${normalizedDirection.visualDescription || normalizedDirection.logoDescription || 'Modern and professional design'}. 
+Style: ${normalizedDirection.mood || 'modern'}. 
+Colors: ${normalizedDirection.colors?.map((c: any) => c.hex || c).join(', ') || '#6366f1, #8b5cf6'}. 
+Industry: ${industry || 'technology'}. 
+Centric composition, white or transparent background, high quality, vector style.`;
 
         try {
           const imageRes = await callBackend({
             type: "image",
             prompt: logoPrompt
           });
-          await delay(250);
           logoImageUrl = imageRes.logo;
-          console.log(`✅ Logo ${i + 1} generated`);
+          console.log(`✅ Logo generated for proposal 1`);
         } catch (error) {
-          console.error(`❌ Error generating logo ${i + 1}:`, error);
+          console.error(`❌ Error generating logo:`, error);
           logoImageUrl = generatePlaceholderLogo(brandName, normalizedDirection.colors?.[0]?.hex || '#6366f1');
         }
       } else {
-        // Fallback para propuestas secundarias
         logoImageUrl = generatePlaceholderLogo(brandName, normalizedDirection.colors?.[0]?.hex || '#6366f1');
       }
 
       // Generate icons for this proposal
-      const icons = [];
+      const icons: BrandIcon[] = [];
 
-      // limitación: Solo la primera propuesta genera iconos reales (4 iconos)
       if (i === 0) {
-        console.log(`🎨 Generating 4 real icons for proposal ${i + 1}...`);
-        const iconNames = ['home', 'search', 'user', 'settings'];
+        const iconNames = ['Logo Icon', 'Square Icon', 'Symbol', 'App Icon', 'Favicon', 'Badge'];
+        console.log(`🎨 Generating ${iconNames.length} real icons for main proposal...`);
 
-        for (const iconName of iconNames) {
-          const iconPrompt = `Simple icon of ${iconName} for "${brandName}" brand. ${normalizedDirection.iconStyle || normalizedDirection.visualDescription || ''}.
-Style: ${normalizedDirection.mood || 'modern'}, minimalist, line icon style.
-Colors: ${normalizedDirection.colors?.[0]?.hex || '#6366f1'}.
-Clean, simple, suitable for UI/UX. White background, centered.`;
+        for (let j = 0; j < iconNames.length; j++) {
+          const iconPrompt = `Minimalist flat icon of a ${iconNames[j]} for the brand "${brandName}". 
+Concept: ${normalizedDirection.iconStyle || normalizedDirection.mood}. 
+Colors: ${normalizedDirection.colors?.[0]?.hex || '#6366f1'}. 
+Simple geometric shape, vector style, white background.`;
 
           try {
             const iconRes = await callBackend({
               type: "image",
               prompt: iconPrompt
             });
-            await delay(250);
             icons.push({
-              name: iconName,
-              svg: iconRes.logo,
-              description: `Icono de ${iconName}`,
+              name: iconNames[j],
+              svg: iconRes.logo, // The backend returns the URL as 'logo'
+              description: `Icono ${iconNames[j]} generado`
             });
+            console.log(`✅ Icon ${j + 1}/${iconNames.length} generated`);
+            await delay(500); // Guard delay
           } catch (error) {
-            console.error(`❌ Error generating icon ${iconName}:`, error);
-            icons.push(generateFallbackIcon(iconName));
+            console.error(`❌ Error generating icon ${j}:`, error);
+            icons.push(generateFallbackIcon(iconNames[j].toLowerCase()));
           }
         }
       } else {
-        // Fallback para iconos de propuestas secundarias
+        // Fallback for secondary proposals
         const fallbackIconNames = ['home', 'search', 'user', 'settings', 'heart', 'star'];
         for (const iconName of fallbackIconNames) {
           icons.push(generateFallbackIcon(iconName));
         }
       }
+
+
+      // Icons already generated above in the loop
+
 
       proposals.push({
         id: i + 1,

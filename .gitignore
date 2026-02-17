@@ -44,3 +44,14 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Project temporary logs and test results
+*.log
+backend/server_output.txt
+backend/probe_results.txt
+backend/debug_server.log
+backend/server_final.log
+*-test.png
+backend-test-logo.png
+backend/backend-test-logo.png
+backend/rest-test.png
