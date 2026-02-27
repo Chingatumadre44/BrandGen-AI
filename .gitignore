@@ -55,3 +55,6 @@ backend/server_final.log
 backend-test-logo.png
 backend/backend-test-logo.png
 backend/rest-test.png
+
+.vercel
+.env*.local
